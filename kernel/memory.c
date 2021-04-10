@@ -8,7 +8,6 @@
 #include "sync.h"
 #include "thread.h"
 #include "interrupt.h"
-#include "stdio-kernel.h"
 
 /******* 位图地址 ******
  * 因为0xc009f000是内核主线程栈顶，0xc009e000是内核主线程的pcd。
@@ -196,7 +195,6 @@ void* get_user_pages(uint32_t pg_cnt)
 /*将地址vaddr与pf池的物理地址关联，仅支持一页空间分配*/
 void* get_a_page(enum pool_flags pf, uint32_t vaddr)
 {
-    // printk("\n\n\n\nMMMMMMMMMMMMMMMMMMMMMMMM\n");
     struct pool* mem_pool = pf & PF_KERNEL ? &kernel_pool : &user_pool;
     lock_acquire(&mem_pool->lock);
 
@@ -217,21 +215,6 @@ void* get_a_page(enum pool_flags pf, uint32_t vaddr)
         PANIC("get_a_page: not allow kernel alloc userapace or user alloc kernelspace by get_a_page");
     }
 
-    void* page_phyaddr = palloc(mem_pool);
-    if(page_phyaddr == NULL) {
-        lock_release(&mem_pool->lock);
-        return NULL;
-    }
-    page_table_add((void*)vaddr, page_phyaddr);
-    lock_release(&mem_pool->lock);
-    return (void*)vaddr;
-}
-
-/*安装1页大小的vaddr，专门针对fork时虚拟地址位图无需操作的情况*/
-void* get_a_page_without_opvaddrbitmap(enum pool_flags pf, uint32_t vaddr)
-{
-    struct pool* mem_pool = pf & PF_KERNEL ? &kernel_pool : &user_pool;
-    lock_acquire(&mem_pool->lock);
     void* page_phyaddr = palloc(mem_pool);
     if(page_phyaddr == NULL) {
         lock_release(&mem_pool->lock);
@@ -477,7 +460,7 @@ void sys_free(void* ptr)
             ASSERT((uint32_t)ptr >= K_HEAP_START);
             PF = PF_KERNEL;
             mem_pool = &kernel_pool;
-        } else {   //user program
+        } else {   //user-program
             PF = PF_USER;
             mem_pool = &user_pool;
         }
@@ -580,21 +563,6 @@ static void mem_pool_init(uint32_t all_mem)
     lock_init(&user_pool.lock);
 
     put_str("mem_init done\n");
-}
-
-/*根据物理页框地址pg_phy_addr在相应的内存池的位图清零，不改动页表*/
-void free_a_phy_addr(uint32_t pg_phy_addr)
-{
-    struct pool* mem_pool;
-    uint32_t bit_idx = 0;
-    if(pg_phy_addr >= user_pool.phy_addr_start) {
-        mem_pool = &user_pool;
-        bit_idx = (pg_phy_addr - user_pool.phy_addr_start) / PG_SIZE;
-    } else {
-        mem_pool = &kernel_pool;
-        bit_idx = (pg_phy_addr - kernel_pool.phy_addr_start) / PG_SIZE;
-    }
-    bitmap_set(&mem_pool->pool_bitmap, bit_idx, 0);
 }
 
 /*内存管理部分初始化入口*/
